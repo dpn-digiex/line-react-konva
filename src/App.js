@@ -1,17 +1,26 @@
 import "./styles.css";
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Rect, Group, Stage, Layer, Line, Circle } from "react-konva";
+import { Rect, Stage, Layer, Line, Circle } from "react-konva";
+import { animated } from "@react-spring/konva";
+import useGroupAnimation from "./useGroupAnimation";
 
 const strokeWidth = 20;
 
 export default function App() {
-  const [points, setPoints] = useState([100, 100, 100, 300]);
+  const [playingAnimation ,setPlayingAnimation] = useState(false);
   const [animationId, setAnimationId] = useState("none");
+
+  // vị trí của line so với trục xy của canvas
+  const [points, setPoints] = useState([0, 0, 50, 50]);
   const [rotation, setRotation] = useState(0);
-  const [metrics, setMetrics] = useState({});
+  const [groupMetrics, setGroupMetrics] = useState({});
+
+  // vị trí của line so với trục xy ở trong group chứa nó
   const [adjustedPoints, setAdjustedPoints] = useState([]);
-  // const [isDraggingHandler, setIsDraggingHandler] = useState(false);
+
   const isDraggingHandlerRef = useRef(false);
+  const containerRef = useRef(null);
+  const lineRef = useRef(null);
 
   const calculateGroupMetrics = (points) => {
     let minX = Math.min(points[0], points[2]);
@@ -19,33 +28,31 @@ export default function App() {
     let minY = Math.min(points[1], points[3]);
     let maxY = Math.max(points[1], points[3]);
     // Tính toán rotation dựa trên hai điểm
-    // const dx = points[2] - points[0];
-    // const dy = points[3] - points[1];
-    // const angleRad = Math.atan2(dy, dx);
-    // const angleDeg = angleRad * (180 / Math.PI);
+    const dx = points[2] - points[0];
+    const dy = points[3] - points[1];
+    const angleRad = Math.atan2(dy, dx);
+    const angleDeg = angleRad * (180 / Math.PI);
 
     return {
       x: minX - strokeWidth / 2,
       y: minY - strokeWidth / 2,
       width: maxX - minX + strokeWidth,
       height: maxY - minY + strokeWidth,
-      // rotation: angleDeg,
+      rotation: angleDeg,
     };
   };
 
-  // const metrics = calculateGroupMetrics(points);
-  // const adjustedPoints = points.map((point, index) =>
-  //   index % 2 === 0 ? point - metrics.x : point - metrics.y
-  // );
-
   useEffect(() => {
-    const newMetrics = calculateGroupMetrics(points);
-    const newAdjustedPoints = points.map((point, index) =>
-      index % 2 === 0 ? point - newMetrics.x : point - newMetrics.y
-    );
-    setMetrics(newMetrics);
-    setAdjustedPoints(newAdjustedPoints);
-  }, [points, metrics]);
+    updateStatesLine(points);
+  }, []);
+
+  const animationRef = {
+    x: groupMetrics?.x,
+    y: groupMetrics?.y,
+    width: groupMetrics?.width,
+    height: groupMetrics?.height,
+  }
+  const { animation } = useGroupAnimation(animationRef, animationId, playingAnimation, setPlayingAnimation);
 
   const handleDragMoveHandler = (index, e) => {
     e.evt.stopPropagation();
@@ -55,41 +62,63 @@ export default function App() {
     const newPoints = [...points];
     if (index === 0 || index === 1) {
       // Nếu là điểm đầu tiên của Line
-      newPoints[0] = e.target.x() + e.target.getParent().x();
-      newPoints[1] = e.target.y() + e.target.getParent().y();
+      newPoints[0] = +(e.target.x() + e.target.getParent().x()).toFixed(1);
+      newPoints[1] = +(e.target.y() + e.target.getParent().y()).toFixed(1);
     } else {
       // Nếu là điểm cuối cùng của Line
-      newPoints[2] = e.target.x() + e.target.getParent().x();
-      newPoints[3] = e.target.y() + e.target.getParent().y();
+      newPoints[2] = +(e.target.x() + e.target.getParent().x()).toFixed(1);
+      newPoints[3] = +(e.target.y() + e.target.getParent().y()).toFixed(1);
     }
-    setPoints(newPoints);
+    updateStatesLine(newPoints);
   };
 
-  const handleDragMoveGroup = (e) => {
+  const handleDragStartLine = (e) => {
     e.evt.stopPropagation();
     if (isDraggingHandlerRef.current) return;
-    console.log("Call handleDragMoveGroup");
-  };
+  }
 
-  const handleDragEndGroup = (e) => {
+  const handleDragMoveLine = (e) => {
+    e.evt.stopPropagation();
     if (isDraggingHandlerRef.current) return;
-    // Khi việc kéo Group kết thúc, tính toán và cập nhật trạng thái
-    const { x, y } = e.target.position();
-    // Tính toán chênh lệch dựa trên vị trí mới so với metrics hiện tại
-    const dx = x - metrics.x;
-    const dy = y - metrics.y;
-    // Áp dụng sự chênh lệch này cho mỗi điểm trong points để cập nhật vị trí
-    const newPoints = points.map((point, index) =>
-      index % 2 === 0 ? point + dx : point + dy
-    );
-    setPoints(newPoints);
-    // Sau khi cập nhật points, cập nhật metrics một cách hiệu quả
-    setMetrics(calculateGroupMetrics(newPoints));
-    console.log("Call handleDragEndGroup");
+    const node = lineRef.current;
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    // Get the delta in position
+    const dx = +(node.x() * scaleX).toFixed(1);
+    const dy = +(node.y() * scaleY).toFixed(1);
+    // Update the line's points based on the delta
+    const newPoints = points.map((point, idx) => {
+      if (idx % 2 === 0) {
+        return +(point + dx).toFixed(1);
+      } else {
+        return +(point + dy).toFixed(1);
+      }
+    });
+    console.log("newPoints",newPoints);
+    // Reset the position after movement to keep the line's control within the group
+    node.position({ x: 0, y: 0 });
+    updateStatesLine(newPoints);
   };
 
-  const handlePlayAnimation = () => {};
-  console.log(metrics);
+  const handleDragEndLine = (e) => {
+    e.evt.stopPropagation();
+    if (isDraggingHandlerRef.current) return;
+  };
+
+  const updateStatesLine = (points) => {
+    const newMetrics = calculateGroupMetrics(points);
+    const newAdjustedPoints = points.map((point, index) =>
+      index % 2 === 0 ? point - newMetrics.x : point - newMetrics.y
+    );
+    setPoints(points);
+    setGroupMetrics(newMetrics);
+    setAdjustedPoints(newAdjustedPoints);
+  }
+
+  const handlePlayAnimation = () => {
+    setPlayingAnimation(true);
+  };
+  // console.log(metrics);
   console.log(adjustedPoints);
 
   return (
@@ -110,7 +139,7 @@ export default function App() {
           <option value="pop">Pop</option>
           <option value="neon">Neon</option>
         </select>
-        <p>Rotation: {rotation}</p>
+        <p>Rotation: {groupMetrics?.rotation}</p>
       </div>
       <div
         style={{
@@ -125,26 +154,34 @@ export default function App() {
         <Stage width={500} height={500}>
           <Layer>
             <Rect width={500} height={500} fill="#efefef" />
-            <Group
-              draggable
-              x={metrics.x}
-              y={metrics.y}
-              onDragMove={handleDragMoveGroup}
-              onDragEnd={handleDragEndGroup}
-              // rotation={metrics.rotation}
+            <animated.Group
+              ref={containerRef}
+              x={groupMetrics.x}
+              y={groupMetrics.y}
+              width={groupMetrics.width}
+              height={groupMetrics.height}            
+              {...(animation.animating && { ...animation.props})}
+              {...((animation.preparing || animation.finished) && { opacity: 0 })}
+              // rotation={groupMetrics.rotation}
             >
               <Rect
-                width={metrics?.width}
-                height={metrics?.height}
-                stroke="lightblue"
                 strokeWidth={1}
+                stroke="lightblue"
+                width={groupMetrics?.width}
+                height={groupMetrics?.height}
               />
               <Line
-                points={adjustedPoints}
+                draggable
+                ref={lineRef}
                 stroke="black"
-                strokeWidth={strokeWidth}
                 lineCap="round"
                 lineJoin="round"
+                points={adjustedPoints}
+                strokeWidth={strokeWidth}
+                onDragStart={handleDragStartLine}
+                onDragMove={handleDragMoveLine}
+                onDragEnd={handleDragEndLine}
+                rotation={0}
               />
               {adjustedPoints.map((point, i) =>
                 i % 2 === 0 ? (
@@ -154,14 +191,14 @@ export default function App() {
                     x={adjustedPoints[i]}
                     y={adjustedPoints[i + 1]}
                     radius={6}
-                    fill="red"
+                    fill={i === 0 ? "red" : "green"}
                     onDragStart={() => (isDraggingHandlerRef.current = true)}
                     onDragMove={(e) => handleDragMoveHandler(i, e)}
                     onDragEnd={() => (isDraggingHandlerRef.current = false)}
                   />
                 ) : null
               )}
-            </Group>
+            </animated.Group>
           </Layer>
         </Stage>
       </div>
